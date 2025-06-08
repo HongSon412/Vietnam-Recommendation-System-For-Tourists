@@ -11,11 +11,51 @@ class TravelChatbot:
     def __init__(self):
         # Khởi tạo OpenAI client
         self.client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        
+
+        # Template prompt để kiểm tra chủ đề
+        self.topic_check_prompt = """
+Bạn là một AI chuyên phân tích chủ đề câu hỏi của người dùng.
+Hãy xác định xem câu hỏi sau có liên quan đến du lịch Việt Nam hay không.
+
+Câu hỏi: "{user_input}"
+
+Các chủ đề ĐƯỢC CHẤP NHẬN (liên quan đến du lịch):
+- Hỏi về địa điểm du lịch, thành phố, tỉnh thành Việt Nam
+- Hỏi về thời tiết, khí hậu cho du lịch
+- Hỏi về thời gian du lịch (tháng, mùa)
+- Hỏi về loại địa hình (biển, núi, đồng bằng)
+- Hỏi về vùng miền (Bắc, Trung, Nam)
+- Hỏi về điều kiện thời tiết mong muốn (nhiệt độ, gió, độ ẩm, tầm nhìn)
+- Gợi ý nơi đi chơi, nghỉ dưỡng
+- Lập kế hoạch du lịch
+
+Các chủ đề KHÔNG ĐƯỢC CHẤP NHẬN (không liên quan đến du lịch):
+- Toán học, vật lý, hóa học
+- Lịch sử, địa lý (không liên quan đến du lịch)
+- Tin học, lập trình, công nghệ
+- Y học, sức khỏe
+- Kinh tế, chính trị, xã hội
+- Giáo dục, học tập
+- Thể thao (không liên quan đến du lịch thể thao)
+- Ẩm thực (trừ khi hỏi về ẩm thực địa phương cho du lịch)
+- Mua sắm (trừ khi hỏi về mua sắm du lịch)
+- Người nổi tiếng, hoặc khi hỏi về danh tính của một nhân vật nào đó
+- Các câu hỏi chung chung không rõ ràng
+
+Trả về JSON với format:
+{
+    "is_travel_related": true/false,
+    "confidence": 0.0-1.0,
+    "reason": "lý do ngắn gọn"
+}
+
+Chỉ trả về JSON, không có text khác.
+"""
+
         # Template prompt để trích xuất thông tin
         self.extraction_prompt = """
 Bạn là một AI chuyên phân tích yêu cầu du lịch của người dùng.
-Hãy phân tích câu hỏi sau và trích xuất thông tin về điều kiện thời tiết mong muốn.
+Hãy phân tích câu hỏi sau và trích xuất thông tin về điều kiện thời tiết mong muốn, vùng miền, địa hình, và thời gian.
 
 Câu hỏi: "{user_input}"
 
@@ -25,7 +65,7 @@ Hãy trả về kết quả dưới dạng JSON với các trường sau:
 - avgtemp_c: nhiệt độ trung bình mong muốn (°C) - số thực từ 15-35
 - maxwind_kph: tốc độ gió tối đa mong muốn (km/h) - số thực từ 5-30
 - avghumidity: độ ẩm trung bình mong muốn (%) - số thực từ 50-90
-- avgvis_km: tầm nhìn trung bình mong muốn (km) - số thực từ 5-15
+- avgvis_km: tầm nhìn trung bình mong muốn (km) - số thực từ 5-10
 - month: tháng du lịch (1-12) - PHẢI trích xuất chính xác từ câu hỏi, nếu không có thì null
 - region: vùng miền mong muốn - nếu có đề cập, nếu không thì null
 - terrain: địa hình mong muốn - nếu có đề cập, nếu không thì null
@@ -47,6 +87,7 @@ THÁNG:
 - "tháng 11" hoặc "tháng mười một" -> 11
 - "tháng 12" hoặc "tháng mười hai" -> 12
 - "mùa xuân" -> 2, "mùa hè" -> 6, "mùa thu" -> 9, "mùa đông" -> 12
+- "mùa khô" -> 4, "mùa mưa" -> 8
 
 NHIỆT ĐỘ (avgtemp_c):
 - "20 độ", "20°C", "20 độ C" -> 20
@@ -68,10 +109,10 @@ GIÓ (maxwind_kph):
 - "vừa phải" -> 70
 
 TẦM NHÌN (avgvis_km):
-- "12 km", "12km" -> 12
-- "tầm nhìn xa", "tầm nhìn tốt" -> 12
-- "tầm nhìn kém" -> 6
-- "bình thường" -> 10
+- "10 km", "10km" -> 10
+- "tầm nhìn xa", "tầm nhìn tốt" -> 10
+- "tầm nhìn kém" -> 5
+- "bình thường" -> 8
 
 VÙNG MIỀN (region):
 - "miền Bắc", "Bắc Bộ", "phía Bắc" -> "Trung du và miền núi Bắc Bộ" hoặc "Đồng bằng sông Hồng"
@@ -79,12 +120,12 @@ VÙNG MIỀN (region):
 - "miền Trung", "Trung Bộ", "phía Trung" -> "Bắc Trung Bộ và Duyên hải miền Trung"
 - "Tây Nguyên", "cao nguyên" -> "Tây Nguyên"
 - "đồng bằng sông Hồng", "Hà Nội", "Hải Phòng" -> "Đồng bằng sông Hồng"
-- "đồng bằng sông Cửu Long", "Mekong", "Cần Thơ", "An Giang" -> "Đồng bằng sông Cửu Long"
+- "đồng bằng sông Cửu Long", "Mekong", "Cần Thơ", "An Giang", "miền Tây", "phía Tây" -> "Đồng bằng sông Cửu Long"
 
 ĐỊA HÌNH (terrain):
 - "miền núi", "núi", "vùng núi", "cao", "leo núi" -> "miền núi"
-- "ven biển", "biển", "bãi biển", "tắm biển", "gần biển" -> "ven biển"
-- "đồng bằng", "bằng phẳng", "đồng ruộng", "nông thôn" -> "đồng bằng"
+- "ven biển", "biển", "bãi biển", "tắm biển", "gần biển", "du lịch biển" -> "ven biển"
+- "đồng bằng", "bằng phẳng", "đồng ruộng", "nông thôn", "cánh đồng", "thôn quê" -> "đồng bằng"
 
 Ví dụ:
 - "Tôi muốn đi chơi vào tháng 11" -> {{"avgtemp_c": 25, "maxwind_kph": 15, "avghumidity": 70, "avgvis_km": 10, "month": 11, "region": null, "terrain": null, "preferences": "du lịch tháng 11"}}
@@ -93,10 +134,179 @@ Ví dụ:
 - "Tôi thích leo núi ở Tây Nguyên" -> {{"avgtemp_c": 25, "maxwind_kph": 15, "avghumidity": 70, "avgvis_km": 10, "month": null, "region": "Tây Nguyên", "terrain": "miền núi", "preferences": "leo núi Tây Nguyên"}}
 - "Nơi đồng bằng miền Nam, khô ráo" -> {{"avgtemp_c": 25, "maxwind_kph": 15, "avghumidity": 55, "avgvis_km": 10, "month": null, "region": "Đồng bằng sông Cửu Long", "terrain": "đồng bằng", "preferences": "đồng bằng miền Nam khô ráo"}}
 - "Tôi muốn đi biển ở miền Bắc" -> {{"avgtemp_c": 25, "maxwind_kph": 15, "avghumidity": 70, "avgvis_km": 10, "month": null, "region": "Bắc Trung Bộ và Duyên hải miền Trung", "terrain": "ven biển", "preferences": "biển miền Bắc"}}
-- "Nơi nóng 30 độ, gió mạnh 25km/h, tầm nhìn xa 15km" -> {{"avgtemp_c": 30, "maxwind_kph": 25, "avghumidity": 70, "avgvis_km": 15, "month": null, "region": null, "terrain": null, "preferences": "nóng 30°C, gió mạnh, tầm nhìn xa"}}
+- "Nơi nóng 30 độ, gió mạnh 25km/h, tầm nhìn xa 10km" -> {{"avgtemp_c": 30, "maxwind_kph": 25, "avghumidity": 70, "avgvis_km": 10, "month": null, "region": null, "terrain": null, "preferences": "nóng 30°C, gió mạnh, tầm nhìn xa"}}
 
 Chỉ trả về JSON, không có text khác.
 """
+
+    def check_travel_topic(self, user_input: str) -> Dict:
+        """
+        Kiểm tra xem câu hỏi có liên quan đến du lịch hay không
+        """
+        try:
+            response = self.client.chat.completions.create(
+                model="gpt-3.5-turbo-0125",
+                messages=[
+                    {"role": "system", "content": "Bạn là một AI chuyên phân tích chủ đề câu hỏi."},
+                    {"role": "user", "content": self.topic_check_prompt.format(user_input=user_input)}
+                ],
+                temperature=0.1,
+                max_tokens=200
+            )
+
+            content = response.choices[0].message.content.strip()
+
+            # Trích xuất JSON từ response
+            json_match = re.search(r'\{.*\}', content, re.DOTALL)
+            if json_match:
+                json_str = json_match.group()
+                # Làm sạch JSON string
+                json_str = re.sub(r'\n\s*', ' ', json_str)  # Loại bỏ newline và whitespace thừa
+                json_str = re.sub(r',\s*}', '}', json_str)  # Loại bỏ dấu phay thừa
+                try:
+                    result = json.loads(json_str)
+                    return result
+                except json.JSONDecodeError as e:
+                    print(f"JSON decode error: {e}, content: {json_str}")
+                    return self._check_travel_topic_fallback(user_input)
+            else:
+                # Fallback: sử dụng regex để kiểm tra
+                return self._check_travel_topic_fallback(user_input)
+
+        except Exception as e:
+            print(f"Error in check_travel_topic: {e}")
+            # Fallback: sử dụng regex để kiểm tra
+            return self._check_travel_topic_fallback(user_input)
+
+    def _check_travel_topic_fallback(self, user_input: str) -> Dict:
+        """
+        Fallback method để kiểm tra chủ đề bằng regex
+        """
+        user_input_lower = user_input.lower()
+
+        # Từ khóa liên quan đến du lịch
+        travel_keywords = [
+            r'du\s*lịch', r'đi\s*chơi', r'nghỉ\s*dưỡng', r'tham\s*quan',
+            r'địa\s*điểm', r'nơi\s*đi', r'thành\s*phố', r'tỉnh', r'vùng',
+            r'miền\s*bắc', r'miền\s*trung', r'miền\s*nam', r'tây\s*nguyên',
+            r'biển', r'núi', r'đồng\s*bằng', r'ven\s*biển',
+            r'thời\s*tiết', r'khí\s*hậu', r'nhiệt\s*độ', r'tháng', r'mùa',
+            r'mát\s*mẻ', r'nóng', r'lạnh', r'ấm', r'gió', r'độ\s*ẩm',
+            r'hà\s*nội', r'sài\s*gòn', r'đà\s*nẵng', r'huế', r'nha\s*trang',
+            r'hạ\s*long', r'sapa', r'đà\s*lạt', r'phú\s*quốc', r'cần\s*thơ'
+        ]
+
+        # Từ khóa không liên quan đến du lịch
+        non_travel_keywords = [
+            r'toán\s*học', r'vật\s*lý', r'hóa\s*học', r'sinh\s*học',
+            r'lập\s*trình', r'code', r'python', r'java', r'javascript',
+            r'máy\s*tính', r'computer', r'software', r'hardware',
+            r'y\s*học', r'bệnh', r'thuốc', r'điều\s*trị',
+            r'kinh\s*tế', r'chính\s*trị', r'xã\s*hội', r'luật',
+            r'học\s*tập', r'giáo\s*dục', r'trường\s*học', r'bài\s*tập',
+            r'thể\s*thao(?!\s*du\s*lịch)', r'bóng\s*đá', r'tennis',
+            r'\d+\s*\+\s*\d+', r'\d+\s*\*\s*\d+', r'phương\s*trình',
+            r'tích\s*phân', r'đạo\s*hàm', r'ma\s*trận', r'giải\s*tích',
+            r'ai', r'con', r'đẹp', r'xinh'
+        ]
+
+        # Đếm số từ khóa du lịch
+        travel_count = sum(1 for keyword in travel_keywords if re.search(keyword, user_input_lower))
+
+        # Đếm số từ khóa không liên quan
+        non_travel_count = sum(1 for keyword in non_travel_keywords if re.search(keyword, user_input_lower))
+
+        # Quyết định dựa trên số lượng từ khóa
+        if non_travel_count > 0:
+            return {
+                "is_travel_related": False,
+                "confidence": 0.8,
+                "reason": "Chứa từ khóa không liên quan đến du lịch"
+            }
+        elif travel_count > 0:
+            return {
+                "is_travel_related": True,
+                "confidence": 0.7,
+                "reason": "Chứa từ khóa liên quan đến du lịch"
+            }
+        else:
+            # Nếu không rõ ràng, mặc định là không liên quan
+            return {
+                "is_travel_related": False,
+                "confidence": 0.5,
+                "reason": "Không rõ ràng về chủ đề du lịch"
+            }
+
+    def generate_polite_refusal(self, user_input: str, topic_result: Dict) -> str:
+        """
+        Tạo câu trả lời từ chối lịch sự cho câu hỏi không liên quan đến du lịch
+        """
+        try:
+            refusal_prompt = f"""
+Người dùng đã hỏi: "{user_input}"
+
+Câu hỏi này không liên quan đến du lịch Việt Nam (lý do: {topic_result.get('reason', '')}).
+
+Hãy tạo một câu trả lời từ chối lịch sự và thân thiện, sau đó hướng dẫn người dùng về những gì bạn có thể hỗ trợ.
+
+Câu trả lời nên:
+- Từ chối một cách lịch sự và thân thiện
+- Giải thích rằng bạn chỉ hỗ trợ về du lịch Việt Nam
+- Đưa ra một số ví dụ về những gì bạn có thể giúp
+- Khuyến khích người dùng hỏi về du lịch
+
+Viết bằng tiếng Việt, tối đa 150 từ.
+"""
+
+            response = self.client.chat.completions.create(
+                model="gpt-3.5-turbo-0125",
+                messages=[
+                    {"role": "system", "content": "Bạn là một trợ lý du lịch thân thiện và lịch sự."},
+                    {"role": "user", "content": refusal_prompt}
+                ],
+                temperature=0.7,
+                max_tokens=400
+            )
+
+            return response.choices[0].message.content.strip()
+
+        except Exception as e:
+            print(f"Error in generate_polite_refusal: {e}")
+            return self._get_default_refusal()
+
+    def _get_default_refusal(self) -> str:
+        """
+        Câu trả lời từ chối mặc định
+        """
+        refusal_messages = [
+            "Xin lỗi, tôi chỉ có thể hỗ trợ bạn về các vấn đề liên quan đến du lịch Việt Nam. Bạn có thể hỏi tôi về địa điểm du lịch, thời tiết, thời gian phù hợp để đi du lịch, hoặc gợi ý những nơi phù hợp với sở thích của bạn.",
+
+            "Tôi rất tiếc nhưng câu hỏi này không thuộc chuyên môn của tôi. Tôi được thiết kế để hỗ trợ về du lịch Việt Nam. Bạn có muốn tôi gợi ý một số địa điểm du lịch thú vị không?",
+
+            "Xin lỗi, tôi chỉ có thể tư vấn về du lịch trong nước. Bạn có thể hỏi tôi về thời tiết, địa điểm, thời gian du lịch phù hợp, hoặc những trải nghiệm du lịch tại Việt Nam.",
+
+            "Tôi hiểu bạn có nhiều câu hỏi thú vị, nhưng tôi chỉ chuyên về tư vấn du lịch Việt Nam. Hãy cho tôi biết bạn muốn đi đâu, khi nào, hoặc thích loại thời tiết như thế nào nhé!"
+        ]
+
+        import random
+        return random.choice(refusal_messages)
+
+    def process_user_input(self, user_input: str) -> tuple:
+        """
+        Xử lý input của người dùng - kiểm tra chủ đề trước khi xử lý
+        Returns: (is_travel_related: bool, response_or_preferences: str or Dict)
+        """
+        # Kiểm tra chủ đề trước
+        topic_result = self.check_travel_topic(user_input)
+
+        # Nếu không liên quan đến du lịch và confidence cao
+        if not topic_result.get('is_travel_related', False) and topic_result.get('confidence', 0) > 0.6:
+            refusal_response = self.generate_polite_refusal(user_input, topic_result)
+            return False, refusal_response
+
+        # Nếu liên quan đến du lịch hoặc không chắc chắn, tiếp tục xử lý
+        preferences = self.extract_travel_preferences(user_input)
+        return True, preferences
 
     def extract_travel_preferences(self, user_input: str) -> Dict:
         """
@@ -120,7 +330,14 @@ Chỉ trả về JSON, không có text khác.
             json_match = re.search(r'\{.*\}', content, re.DOTALL)
             if json_match:
                 json_str = json_match.group()
-                preferences = json.loads(json_str)
+                # Làm sạch JSON string
+                json_str = re.sub(r'\n\s*', ' ', json_str)  # Loại bỏ newline và whitespace thừa
+                json_str = re.sub(r',\s*}', '}', json_str)  # Loại bỏ dấu phay thừa
+                try:
+                    preferences = json.loads(json_str)
+                except json.JSONDecodeError as e:
+                    print(f"JSON decode error in extract_travel_preferences: {e}")
+                    return self._get_default_preferences_with_fallback(user_input)
 
                 # Nếu OpenAI không trích xuất được các thông số, thử regex fallback
                 if preferences.get('month') is None:
@@ -149,7 +366,7 @@ Chỉ trả về JSON, không có text khác.
                         preferences['avghumidity'] = humidity
 
                 # Fallback cho tầm nhìn
-                if preferences.get('avgvis_km') is None or not (5 <= preferences.get('avgvis_km', 0) <= 15):
+                if preferences.get('avgvis_km') is None or not (5 <= preferences.get('avgvis_km', 0) <= 10):
                     visibility = self._extract_visibility_fallback(user_input)
                     if visibility:
                         preferences['avgvis_km'] = visibility
@@ -189,8 +406,8 @@ Chỉ trả về JSON, không có text khác.
         # Validate avghumidity (50-90)
         validated['avghumidity'] = max(50, min(90, preferences.get('avghumidity', 70)))
         
-        # Validate avgvis_km (5-15)
-        validated['avgvis_km'] = max(5, min(15, preferences.get('avgvis_km', 10)))
+        # Validate avgvis_km (5-10)
+        validated['avgvis_km'] = max(5, min(10, preferences.get('avgvis_km', 8)))
         
         # Validate month (1-12 or None)
         month = preferences.get('month')
@@ -358,17 +575,17 @@ Chỉ trả về JSON, không có text khác.
             match = re.search(pattern, user_input_lower)
             if match:
                 visibility = float(match.group(1))
-                # Validate range (5-15 km)
-                if 5 <= visibility <= 15:
+                # Validate range (5-10 km)
+                if 5 <= visibility <= 10:
                     return visibility
 
         # Tìm từ khóa mô tả
         if re.search(r'tầm\s*nhìn\s*xa|tầm\s*nhìn\s*tốt|trong\s*vắt', user_input_lower):
-            return 12.0  # Tầm nhìn tốt
+            return 10.0  # Tầm nhìn tốt
         elif re.search(r'tầm\s*nhìn\s*kém|mù|sương', user_input_lower):
-            return 6.0  # Tầm nhìn kém
+            return 5.0  # Tầm nhìn kém
         elif re.search(r'tầm\s*nhìn\s*bình\s*thường', user_input_lower):
-            return 10.0  # Bình thường
+            return 8.0  # Bình thường
 
         return None
 
@@ -380,7 +597,7 @@ Chỉ trả về JSON, không có text khác.
         region_patterns = {
             "Tây Nguyên": [r'tây\s*nguyên', r'cao\s*nguyên', r'đà\s*lạt', r'buôn\s*ma\s*thuột'],
             "Đồng bằng sông Hồng": [r'đồng\s*bằng\s*sông\s*hồng', r'hà\s*nội', r'hải\s*phòng', r'nam\s*định', r'thái\s*bình'],
-            "Đồng bằng sông Cửu Long": [r'đồng\s*bằng\s*sông\s*cửu\s*long', r'mekong', r'cần\s*thơ', r'an\s*giang', r'cà\s*mau', r'bến\s*tre'],
+            "Đồng bằng sông Cửu Long": [r'đồng\s*bằng\s*sông\s*cửu\s*long', r'mekong', r'cần\s*thơ', r'an\s*giang', r'cà\s*mau', r'bến\s*tre', r'miền\s*tây', r"phía\s*tây"],
             "Bắc Trung Bộ và Duyên hải miền Trung": [r'miền\s*trung', r'trung\s*bộ', r'phía\s*trung', r'huế', r'đà\s*nẵng', r'hội\s*an', r'nha\s*trang'],
             "Trung du và miền núi Bắc Bộ": [r'miền\s*núi\s*bắc\s*bộ', r'trung\s*du', r'sapa', r'hà\s*giang', r'cao\s*bằng'],
             "Đông Nam Bộ": [r'đông\s*nam\s*bộ', r'tp\s*hồ\s*chí\s*minh', r'sài\s*gòn', r'đồng\s*nai', r'bình\s*dương']
@@ -388,11 +605,13 @@ Chỉ trả về JSON, không có text khác.
 
         # Thêm các pattern chung
         if re.search(r'miền\s*bắc|bắc\s*bộ|phía\s*bắc', user_input_lower):
-            # Ưu tiên đồng bằng sông Hồng cho miền Bắc
             return "Đồng bằng sông Hồng"
-        elif re.search(r'miền\s*nam|nam\s*bộ|phía\s*nam', user_input_lower):
-            # Ưu tiên đồng bằng sông Cửu Long cho miền Nam
+        elif re.search(r'miền\s*nam|nam\s*bộ|phía\s*nam|miền\s*tây', user_input_lower):
             return "Đồng bằng sông Cửu Long"
+        elif re.search(r'miền\s*trung|trung\s*bộ|phía\s*trung', user_input_lower):
+            return "Bắc Trung Bộ và Duyên hải miền Trung"
+        elif re.search(r'tây\s*nguyên', user_input_lower):
+            return "Tây Nguyên"
 
         for region, patterns in region_patterns.items():
             for pattern in patterns:
@@ -487,10 +706,22 @@ Chỉ trả về JSON, không có text khác.
 
         return preferences
     
-    def generate_response(self, user_input: str, recommendations: List[Dict]) -> str:
+    def generate_response(self, user_input: str, recommendations: List[Dict] = None) -> str:
         """
-        Tạo response tự nhiên dựa trên recommendations
+        Tạo response tự nhiên - có thể là gợi ý du lịch hoặc từ chối lịch sự
         """
+        # Kiểm tra chủ đề trước
+        is_travel_related, result = self.process_user_input(user_input)
+
+        # Nếu không liên quan đến du lịch, trả về câu từ chối
+        if not is_travel_related:
+            return result  # result là câu từ chối
+
+        # Nếu liên quan đến du lịch nhưng không có recommendations, tạo response chung
+        if recommendations is None or len(recommendations) == 0:
+            return "Tôi hiểu yêu cầu của bạn, nhưng hiện tại chưa tìm được địa điểm phù hợp. Bạn có thể cung cấp thêm thông tin cụ thể về thời gian, địa điểm, hoặc điều kiện thời tiết mong muốn không?"
+
+        # Tạo response cho gợi ý du lịch
         try:
             # Tạo context từ recommendations
             locations_text = ""
@@ -499,7 +730,7 @@ Chỉ trả về JSON, không có text khác.
                 locations_text += f"   Nhiệt độ: {rec['avgtemp_c']:.1f}°C, Gió: {rec['maxwind_kph']:.1f}km/h, "
                 locations_text += f"Độ ẩm: {rec['avghumidity']:.1f}%, Tầm nhìn: {rec['avgvis_km']:.1f}km\n"
                 locations_text += f"   Điểm phù hợp: {rec['score']:.2f}\n\n"
-            
+
             response_prompt = f"""
 Dựa trên yêu cầu du lịch: "{user_input}"
 
@@ -507,29 +738,28 @@ Tôi đã tìm được những địa điểm phù hợp sau:
 
 {locations_text}
 
-Hãy viết một phản hồi tự nhiên, thân thiện để giới thiệu những địa điểm này cho người dùng. 
+Hãy viết một phản hồi tự nhiên, thân thiện để giới thiệu những địa điểm này cho người dùng.
 Phản hồi nên:
 - Bắt đầu bằng lời chào thân thiện
 - Giải thích ngắn gọn tại sao những địa điểm này phù hợp
 - Mô tả đặc điểm thời tiết của từng nơi
 - Kết thúc bằng lời khuyên hoặc câu hỏi để tiếp tục hỗ trợ
-- Nếu người dùng không trả lời không có liên quan đến chủ đề thì hãy từ chối 1 cách lịch sự (Ví dụ: các chủ đề toán học, xã hội,...)
-
+- CHỈ tập trung vào du lịch Việt Nam
 Viết bằng tiếng Việt, tối đa 300 từ.
 """
-            
+
             response = self.client.chat.completions.create(
                 model="gpt-3.5-turbo-0125",
                 messages=[
-                    {"role": "system", "content": "Bạn là một chuyên gia tư vấn du lịch thân thiện và am hiểu về Việt Nam."},
+                    {"role": "system", "content": "Bạn là một chuyên gia tư vấn du lịch Việt Nam thân thiện. Chỉ trả lời về du lịch trong nước."},
                     {"role": "user", "content": response_prompt}
                 ],
                 temperature=0.7,
                 max_tokens=800
             )
-            
+
             return response.choices[0].message.content.strip()
-            
+
         except Exception as e:
             print(f"Error in generate_response: {e}")
             return self._get_default_response(recommendations)
@@ -545,7 +775,36 @@ Viết bằng tiếng Việt, tối đa 300 từ.
             response += f"{i}. **{rec['city']}, {rec['province']}** ({rec['region']})\n"
             response += f"   - Thời gian: Tháng {rec['month']}\n"
             response += f"   - Thời tiết: {rec['avgtemp_c']:.1f}°C, gió {rec['maxwind_kph']:.1f}km/h\n"
-            response += f"   - Điểm phù hợp: {rec['score']:.2f}/5\n\n"
+            response += f"   - Điểm phù hợp: {rec['score']:.2f}/40\n\n"
         
         response += "Bạn có muốn biết thêm thông tin về địa điểm nào không?"
         return response
+
+    def chat(self, user_input: str, recommendations: List[Dict] = None) -> str:
+        """
+        Phương thức chính để chat với người dùng
+        Tự động kiểm tra chủ đề và trả về phản hồi phù hợp
+        """
+        return self.generate_response(user_input, recommendations)
+
+# Ví dụ sử dụng
+if __name__ == "__main__":
+    chatbot = TravelChatbot()
+
+    # Test các câu hỏi khác nhau
+    test_questions = [
+        "Tôi muốn đi du lịch biển miền Trung tháng 6",
+        "2 + 2 bằng mấy?",
+        "Hãy giải phương trình x^2 + 5x + 6 = 0",
+        "Nơi nào ở Việt Nam có thời tiết mát mẻ vào tháng 12?",
+        "Python là ngôn ngữ lập trình gì?",
+        "Tôi thích leo núi ở Tây Nguyên",
+        "Bệnh cảm cúm có triệu chứng gì?"
+    ]
+
+    print("=== TEST CHATBOT ===")
+    for question in test_questions:
+        print(f"\nCâu hỏi: {question}")
+        response = chatbot.chat(question)
+        print(f"Trả lời: {response}")
+        print("-" * 50)
