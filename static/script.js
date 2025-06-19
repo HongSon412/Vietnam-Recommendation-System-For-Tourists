@@ -76,16 +76,22 @@ async function sendMessage() {
         const data = await response.json();
         
         if (data.success) {
-            // Add bot response to chat
-            addMessageToChat(data.response, 'bot');
-            
-            // Update recommendations and map
-            if (data.recommendations && data.recommendations.length > 0) {
+            // Add bot response to chat với style phù hợp
+            addMessageToChat(data.response, 'bot', data.is_travel_related);
+
+            // Update recommendations và map chỉ khi có gợi ý du lịch
+            if (data.is_travel_related && data.has_recommendations) {
                 updateRecommendations(data.recommendations);
                 updateMap(data.recommendations);
+            } else if (data.is_travel_related && !data.has_recommendations) {
+                // Trường hợp liên quan du lịch nhưng không tìm được gợi ý
+                clearRecommendations();
+            } else {
+                // Trường hợp không liên quan du lịch - hiển thị hướng dẫn
+                showTravelGuidance();
             }
         } else {
-            addMessageToChat('Xin lỗi, đã có lỗi xảy ra: ' + data.error, 'bot');
+            addMessageToChat('Xin lỗi, đã có lỗi xảy ra: ' + data.error, 'bot', false);
         }
         
     } catch (error) {
@@ -115,23 +121,29 @@ function showLoadingState(loading) {
 }
 
 // Add message to chat
-function addMessageToChat(message, sender) {
+function addMessageToChat(message, sender, isTravelRelated = true) {
     const chatMessages = document.getElementById('chatMessages');
     const messageDiv = document.createElement('div');
-    messageDiv.className = `message ${sender}-message`;
-    
+
+    // Thêm class phù hợp dựa trên loại message
+    let messageClass = `message ${sender}-message`;
+    if (sender === 'bot' && !isTravelRelated) {
+        messageClass += ' refusal-message';
+    }
+    messageDiv.className = messageClass;
+
     const currentTime = new Date().toLocaleTimeString('vi-VN', {
         hour: '2-digit',
         minute: '2-digit'
     });
-    
+
     messageDiv.innerHTML = `
         <div class="message-content">
             <strong>${sender === 'user' ? 'Bạn' : 'Chatbot'}:</strong> ${message}
         </div>
         <div class="message-time">${currentTime}</div>
     `;
-    
+
     chatMessages.appendChild(messageDiv);
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
@@ -231,7 +243,7 @@ function updateMap(recommendations) {
                     <strong>Nhiệt độ:</strong> ${rec.avgtemp_c.toFixed(1)}°C<br>
                     <strong>Gió:</strong> ${rec.maxwind_kph.toFixed(1)} km/h<br>
                     <strong>Độ ẩm:</strong> ${rec.avghumidity.toFixed(0)}%<br>
-                    <strong>Điểm phù hợp:</strong> ${rec.score.toFixed(2)}/40
+                    <strong>Điểm phù hợp:</strong> ${rec.score.toFixed(2)}/100
                 </div>
             `);
         
@@ -255,7 +267,48 @@ function updateMap(recommendations) {
     }
 }
 
-// Utility function to format numbers
-function formatNumber(num, decimals = 1) {
-    return parseFloat(num).toFixed(decimals);
+// Clear map markers helper
+function clearMapMarkers() {
+    markers.forEach(marker => map.removeLayer(marker));
+    markers = [];
+}
+
+// Clear recommendations
+function clearRecommendations() {
+    document.getElementById('recommendationsList').innerHTML = '<p class="text-muted">Không tìm thấy gợi ý phù hợp với yêu cầu của bạn.</p>';
+    clearMapMarkers();
+}
+
+// Show travel guidance for non-travel queries
+function showTravelGuidance() {
+    const examples = [
+        "Tôi muốn đi biển miền Trung tháng 6",
+        "Nơi nào mát mẻ vào mùa đông?",
+        "Gợi ý địa điểm leo núi ở Tây Nguyên"
+    ];
+
+    document.getElementById('recommendationsList').innerHTML = `
+        <div class="travel-guidance">
+            <h6>Hướng dẫn sử dụng</h6>
+            <p class="text-muted mb-2">Để nhận gợi ý du lịch, hãy hỏi về:</p>
+            <ul class="guidance-list">
+                <li>Địa điểm du lịch (biển, núi, thành phố)</li>
+                <li>Thời tiết mong muốn</li>
+                <li>Thời gian du lịch (tháng, mùa)</li>
+                <li>Vùng miền (Bắc, Trung, Nam)</li>
+            </ul>
+            <div class="example-queries">
+                <p class="mb-1"><strong>Ví dụ:</strong></p>
+                ${examples.map(ex => `<div class="example-item" onclick="fillExampleQuery('${ex}')">"${ex}"</div>`).join('')}
+            </div>
+        </div>
+    `;
+    clearMapMarkers();
+}
+
+// Fill example query into input
+function fillExampleQuery(query) {
+    const messageInput = document.getElementById('messageInput');
+    messageInput.value = query;
+    messageInput.focus();
 }
