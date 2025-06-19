@@ -55,17 +55,29 @@ async def chat_endpoint(
         if not user_message:
             raise HTTPException(status_code=400, detail="Message cannot be empty")
         
-        # Trích xuất preferences từ user message
-        print(f"Analyzing user message: {user_message}")
-        preferences = chatbot.extract_travel_preferences(user_message)
-        print(f"Extracted preferences: {preferences}")
-        
-        # Lấy recommendations
-        recommendations = recommendation_engine.get_recommendations(preferences, top_k=5)
-        print(f"Found {len(recommendations)} recommendations")
-        
-        # Tạo response
-        bot_response = chatbot.generate_response(user_message, recommendations)
+        # Xử lý user message với tính năng kiểm tra chủ đề
+        print(f"Processing user message: {user_message}")
+        is_travel_related, result = chatbot.process_user_input(user_message)
+
+        recommendations = []
+        preferences = {}
+
+        if is_travel_related:
+            # Nếu liên quan đến du lịch, result là preferences
+            preferences = result
+            print(f"Extracted preferences: {preferences}")
+
+            # Lấy recommendations
+            recommendations = recommendation_engine.get_recommendations(preferences, top_k=5)
+            print(f"Found {len(recommendations)} recommendations")
+
+            # Tạo response cho du lịch
+            bot_response = chatbot.generate_response(user_message, recommendations)
+        else:
+            # Nếu không liên quan đến du lịch, result là câu từ chối
+            bot_response = result
+            print(f"Non-travel query, refusal response: {bot_response}")
+            preferences = {"preferences": "non_travel_query"}
         
         # Lưu vào database
         chat_record = ChatHistory(
@@ -82,9 +94,11 @@ async def chat_endpoint(
         return JSONResponse({
             "success": True,
             "response": bot_response,
+            "is_travel_related": is_travel_related,
             "recommendations": recommendations,
             "preferences": preferences,
-            "session_id": session_id
+            "session_id": session_id,
+            "has_recommendations": len(recommendations) > 0
         })
         
     except Exception as e:
@@ -99,32 +113,18 @@ async def chat_endpoint(
 async def get_clusters():
     """API để lấy thông tin về các clusters"""
     try:
-        clusters = recommendation_engine.get_all_clusters_summary()
-        return JSONResponse({
-            "success": True,
-            "clusters": clusters
-        })
+        return {"success": True, "clusters": recommendation_engine.get_all_clusters_summary()}
     except Exception as e:
-        return JSONResponse({
-            "success": False,
-            "error": str(e)
-        }, status_code=500)
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
 @app.get("/api/search/{location}")
 async def search_location(location: str):
     """API để tìm kiếm theo tên địa điểm"""
     try:
         results = recommendation_engine.search_by_location(location, top_k=10)
-        return JSONResponse({
-            "success": True,
-            "results": results,
-            "total": len(results)
-        })
+        return {"success": True, "results": results, "total": len(results)}
     except Exception as e:
-        return JSONResponse({
-            "success": False,
-            "error": str(e)
-        }, status_code=500)
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
 @app.get("/api/history")
 async def get_chat_history(
