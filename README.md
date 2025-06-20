@@ -141,7 +141,7 @@ GET /api/clusters
 
 ### Data Coverage
 - **Total Records**: 744 tourism entries
-- **Geographic Coverage**: 62 Vietnamese cities
+- **Geographic Coverage**: 63 Vietnamese cities
 - **Temporal Coverage**: 12 months of seasonal data
 - **Regional Distribution**: 6 major Vietnamese regions
 
